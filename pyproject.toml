@@ -1,0 +1,27 @@
+[project]
+name = "ticker_lookup"
+version = "0.1.0"
+description = "Drop a spreadsheet of CUSIPs, ISINs or tickers; get it back with previous-close prices"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn>=0.30",
+    "python-multipart>=0.0.9",
+    "httpx>=0.27",
+    "python-dotenv>=1.0",
+    # zoneinfo has no time zone database of its own on Windows.
+    "tzdata; sys_platform == 'win32'",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["ticker_lookup"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

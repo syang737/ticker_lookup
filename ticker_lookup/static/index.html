@@ -1,0 +1,200 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ticker Lookup</title>
+<style>
+  :root {
+    --bg: #f6f7f9; --card: #fff; --text: #1b1f24; --muted: #5b6470;
+    --border: #d9dde3; --accent: #2457d6; --accent-soft: #e8eefc; --accent-text: #fff;
+    --ok: #137333; --warn: #a15c00; --error: #b42318;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #111418; --card: #1a1f25; --text: #e6e9ed; --muted: #9aa4b1;
+      --border: #2d343c; --accent: #5b8cff; --accent-soft: #1d2a45; --accent-text: #0b0e12;
+      --ok: #7fd18b; --warn: #f2b45a; --error: #ff8a80;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  header {
+    display: flex; justify-content: space-between; align-items: center;
+    max-width: 760px; margin: 0 auto; padding: 20px 16px 0;
+  }
+  header h1 { font-size: 18px; margin: 0; }
+  header button {
+    font: inherit; font-size: 14px; background: none; border: 1px solid var(--border);
+    color: var(--muted); border-radius: 8px; padding: 6px 12px; cursor: pointer;
+  }
+  main { max-width: 760px; margin: 0 auto; padding: 20px 16px 48px; }
+  .intro { color: var(--muted); margin: 0 0 16px; }
+  #drop {
+    display: grid; place-items: center; text-align: center; min-height: 200px; padding: 24px;
+    background: var(--card); border: 2px dashed var(--border); border-radius: 12px;
+    cursor: pointer; transition: border-color .15s, background .15s;
+  }
+  #drop:hover, #drop:focus-visible, #drop.over { border-color: var(--accent); background: var(--accent-soft); outline: none; }
+  #drop.busy { cursor: progress; opacity: .7; }
+  #drop strong { display: block; font-size: 16px; }
+  #drop span { color: var(--muted); font-size: 14px; }
+  .spinner {
+    width: 22px; height: 22px; border: 3px solid var(--border); border-top-color: var(--accent);
+    border-radius: 50%; animation: spin .8s linear infinite; margin: 0 auto 10px;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .card {
+    margin-top: 20px; background: var(--card); border: 1px solid var(--border);
+    border-radius: 12px; padding: 20px;
+  }
+  .error-card { border-color: var(--error); color: var(--error); }
+  .headline { display: flex; flex-wrap: wrap; gap: 8px 24px; align-items: baseline; margin-bottom: 14px; }
+  .headline .big { font-size: 28px; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .headline .meta { color: var(--muted); font-size: 14px; }
+  table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  td { padding: 6px 0; border-top: 1px solid var(--border); }
+  td.n { text-align: right; font-variant-numeric: tabular-nums; width: 80px; }
+  .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 8px; }
+  .actions { margin-top: 16px; display: flex; flex-wrap: wrap; gap: 8px; }
+  .actions a, .actions button {
+    font: inherit; font-weight: 600; text-decoration: none; border-radius: 8px;
+    padding: 9px 16px; cursor: pointer;
+  }
+  .actions a { background: var(--accent); color: var(--accent-text); }
+  .actions button { background: none; border: 1px solid var(--border); color: var(--text); }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Ticker Lookup</h1>
+  <form method="post" action="/logout"><button type="submit">Sign out</button></form>
+</header>
+<main>
+  <p class="intro">Drop a CSV with a CUSIP, ISIN or ticker column. You get the same file back with
+    the ticker and previous close appended, and a status on every row.</p>
+
+  <div id="drop" tabindex="0" role="button" aria-label="Choose a CSV file">
+    <div id="drop-idle">
+      <strong>Drop a CSV here</strong>
+      <span>or click to choose a file</span>
+    </div>
+    <div id="drop-busy" hidden>
+      <div class="spinner"></div>
+      <strong id="busy-name"></strong>
+      <span>Looking up identifiers and prices…</span>
+    </div>
+  </div>
+  <input type="file" id="file" accept=".csv,text/csv" hidden>
+
+  <section id="result" class="card" hidden aria-live="polite">
+    <div class="headline">
+      <div class="big" id="priced"></div>
+      <div class="meta" id="meta"></div>
+    </div>
+    <table><tbody id="statuses"></tbody></table>
+    <div class="actions">
+      <a id="download">Download again</a>
+      <button type="button" id="another">Process another file</button>
+    </div>
+  </section>
+
+  <section id="error" class="card error-card" hidden role="alert"></section>
+</main>
+<script>
+  const $ = (id) => document.getElementById(id);
+  const drop = $("drop"), input = $("file");
+  let busy = false, lastUrl = null;
+
+  const color = (s) => s === "ok" ? "var(--ok)" : s.startsWith("invalid") ? "var(--error)" : "var(--warn)";
+
+  function setBusy(on, name) {
+    busy = on;
+    drop.classList.toggle("busy", on);
+    $("drop-idle").hidden = on;
+    $("drop-busy").hidden = !on;
+    $("busy-name").textContent = name || "";
+  }
+
+  function showError(msg) {
+    $("result").hidden = true;
+    $("error").textContent = msg;
+    $("error").hidden = false;
+  }
+
+  async function upload(file) {
+    if (busy || !file) return;
+    if (!/\.csv$/i.test(file.name)) return showError("Please choose a .csv file. In Excel: File › Save As › CSV UTF-8.");
+    $("error").hidden = true;
+    $("result").hidden = true;
+    setBusy(true, file.name);
+    try {
+      const body = new FormData();
+      body.append("file", file);
+      const resp = await fetch("/api/enrich", { method: "POST", body });
+      if (resp.status === 401) { location.href = "/login"; return; }
+      if (!resp.ok) {
+        let msg = `Request failed (${resp.status}).`;
+        try { msg = (await resp.json()).error || msg; } catch {}
+        return showError(msg);
+      }
+      const summary = JSON.parse(resp.headers.get("X-Lookup-Summary"));
+      const name = /filename="([^"]+)"/.exec(resp.headers.get("Content-Disposition"))?.[1] || "prices.csv";
+      if (lastUrl) URL.revokeObjectURL(lastUrl);
+      lastUrl = URL.createObjectURL(await resp.blob());
+      const link = $("download");
+      link.href = lastUrl;
+      link.download = name;
+      showResult(summary);
+      link.click();
+    } catch (e) {
+      showError("Could not reach the server. " + e.message);
+    } finally {
+      setBusy(false);
+      input.value = "";
+    }
+  }
+
+  function showResult(s) {
+    const pct = s.rows ? Math.round(100 * s.priced / s.rows) : 0;
+    $("priced").textContent = `${s.priced.toLocaleString()} of ${s.rows.toLocaleString()} priced (${pct}%)`;
+    $("meta").textContent = `Close of ${s.close_date} · identifiers from column “${s.column}”`;
+    const tbody = $("statuses");
+    tbody.replaceChildren(...s.statuses.map(([status, n]) => {
+      const tr = document.createElement("tr");
+      const td1 = document.createElement("td"), td2 = document.createElement("td");
+      const dot = document.createElement("span");
+      dot.className = "dot";
+      dot.style.background = color(status);
+      td1.append(dot, status);
+      td2.className = "n";
+      td2.textContent = n.toLocaleString();
+      tr.append(td1, td2);
+      return tr;
+    }));
+    $("result").hidden = false;
+  }
+
+  drop.addEventListener("click", () => !busy && input.click());
+  drop.addEventListener("keydown", (e) => {
+    if ((e.key === "Enter" || e.key === " ") && !busy) { e.preventDefault(); input.click(); }
+  });
+  input.addEventListener("change", () => upload(input.files[0]));
+  ["dragenter", "dragover"].forEach((t) => drop.addEventListener(t, (e) => {
+    e.preventDefault(); drop.classList.add("over");
+  }));
+  ["dragleave", "drop"].forEach((t) => drop.addEventListener(t, (e) => {
+    e.preventDefault(); drop.classList.remove("over");
+  }));
+  drop.addEventListener("drop", (e) => upload(e.dataTransfer.files[0]));
+  // A file dropped beside the zone would otherwise open in the tab.
+  window.addEventListener("dragover", (e) => e.preventDefault());
+  window.addEventListener("drop", (e) => e.preventDefault());
+  $("another").addEventListener("click", () => { $("result").hidden = true; input.click(); });
+</script>
+</body>
+</html>
