@@ -1,16 +1,24 @@
 """Append ticker and previous close to every row of an uploaded CSV.
 
 The original columns pass through untouched; every row gets a status, so a
-row that could not be priced says why instead of disappearing.
+row that could not be priced says why instead of disappearing. The result is
+written as .xlsx by default: opened in Excel, a CSV loses CUSIPs to scientific
+notation (78471E109) and leading zeros, and only a typed cell prevents that.
 """
 
 from __future__ import annotations
 
 import csv
 import io
+import re
 from collections import Counter
 from dataclasses import dataclass, field
 from datetime import date
+
+from openpyxl import Workbook
+from openpyxl.cell import WriteOnlyCell
+from openpyxl.styles import Font
+from openpyxl.utils import get_column_letter
 
 from .cache import FigiCache
 from .identifiers import CUSIP, classify
@@ -23,6 +31,14 @@ OUT_COLUMNS = ["lookup_ticker", "close", "close_date", "lookup_status", "lookup_
 
 class InputError(ValueError):
     """The upload cannot be processed at all; the message is for the user."""
+
+
+@dataclass
+class Table:
+    header: list[str]
+    # Original cells are strings; close is a float and close_date a date.
+    rows: list[list]
+    id_col: int
 
 
 @dataclass
@@ -98,7 +114,7 @@ def enrich(
     figi: OpenFigi,
     massive: Massive,
     cache: FigiCache | None = None,
-) -> tuple[bytes, Summary]:
+) -> tuple[Table, Summary]:
     rows = list(csv.reader(io.StringIO(decode(data))))
     rows = [r for r in rows if any(c.strip() for c in r)]
     if len(rows) < 2:
@@ -119,9 +135,7 @@ def enrich(
 
     close_date, closes = massive.previous_closes()
 
-    out = io.StringIO()
-    w = csv.writer(out)
-    w.writerow(header + OUT_COLUMNS)
+    table = Table(header=header + OUT_COLUMNS, rows=[], id_col=col)
     summary = Summary(rows=len(body), priced=0, column=header[col], close_date=close_date)
     for r, (value, kind, note) in zip(body, classified):
         if kind is None:
@@ -133,13 +147,71 @@ def enrich(
         close = closes.get(ticker) if ticker else None
         summary.priced += close is not None
         summary.statuses[status.split(" (")[0].split(",")[0]] += 1
-        w.writerow(r + [
+        table.rows.append(r + [
             ticker or "",
-            str(close) if close is not None else "",
-            close_date.isoformat() if close is not None else "",
+            close,
+            close_date if close is not None else None,
             status,
             (match or {}).get("name") or "",
             (match or {}).get("compositeFIGI") or "",
         ])
+    return table, summary
+
+
+def to_csv(table: Table) -> bytes:
+    out = io.StringIO()
+    w = csv.writer(out)
+    w.writerow(table.header)
+    for r in table.rows:
+        w.writerow(["" if v is None else v.isoformat() if isinstance(v, date) else str(v) for v in r])
     # utf-8-sig so Excel reads the names correctly, on Windows too.
-    return out.getvalue().encode("utf-8-sig"), summary
+    return out.getvalue().encode("utf-8-sig")
+
+
+# Only values that survive the trip to a number and back unchanged become
+# numbers: 0123 (an account), 1E5 or 12345678901234567 (past float precision)
+# stay text.
+NUMBER_RE = re.compile(r"^-?(0|[1-9]\d{0,14})(\.\d{1,15})?$")
+
+
+def _cell(ws, value, text: bool = False) -> WriteOnlyCell:
+    if isinstance(value, str) and not text and NUMBER_RE.match(value) and len(value) <= 16:
+        value = float(value) if "." in value else int(value)
+    cell = WriteOnlyCell(ws, value=value)
+    if isinstance(value, str):
+        # Without this, a value starting with "=" is written as a live formula.
+        cell.data_type = "s"
+        if text:
+            cell.number_format = "@"
+    elif isinstance(value, date):
+        cell.number_format = "yyyy-mm-dd"
+    return cell
+
+
+def to_xlsx(table: Table) -> bytes:
+    wb = Workbook(write_only=True)
+    ws = wb.create_sheet("Prices")
+    ws.freeze_panes = "A2"
+    for i, name in enumerate(table.header):
+        width = max([len(name), *(len(str(r[i])) for r in table.rows[:200] if i < len(r))])
+        ws.column_dimensions[get_column_letter(i + 1)].width = min(max(width + 2, 8), 45)
+    ws.auto_filter.ref = f"A1:{get_column_letter(len(table.header))}{len(table.rows) + 1}"
+
+    bold = Font(bold=True)
+    head = []
+    for name in table.header:
+        c = _cell(ws, name, text=True)
+        c.font = bold
+        head.append(c)
+    ws.append(head)
+
+    n_orig = len(table.header) - len(OUT_COLUMNS)
+    # Text columns among those appended: everything but close and close_date.
+    text_cols = {table.id_col} | {n_orig + i for i, c in enumerate(OUT_COLUMNS) if c not in ("close", "close_date")}
+    for r in table.rows:
+        ws.append([_cell(ws, v, text=i in text_cols) for i, v in enumerate(r)])
+
+    out = io.BytesIO()
+    wb.save(out)
+    return out.getvalue()
+

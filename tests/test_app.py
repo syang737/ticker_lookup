@@ -44,7 +44,7 @@ def test_upload_returns_the_priced_file(client):
     assert login(client).headers["location"] == "/"
     assert "Drop a CSV" in client.get("/").text
 
-    r = client.post("/api/enrich", files={"file": ("positions (1).csv", CSV, "text/csv")})
+    r = client.post("/api/enrich?format=csv", files={"file": ("positions (1).csv", CSV, "text/csv")})
     assert r.status_code == 200
     assert r.headers["content-disposition"] == 'attachment; filename="positions_1_prices_2026-10-26.csv"'
     summary = json.loads(r.headers["x-lookup-summary"])
@@ -66,3 +66,16 @@ def test_logout_clears_the_session(client):
     client.post("/logout", follow_redirects=False)
     client.cookies.clear()
     assert client.get("/", follow_redirects=False).status_code == 303
+
+
+def test_excel_is_the_default_download(client):
+    login(client)
+    r = client.post("/api/enrich", files={"file": ("p.csv", CSV)})
+    assert r.status_code == 200
+    assert r.headers["content-disposition"] == 'attachment; filename="p_prices_2026-10-26.xlsx"'
+    assert r.content[:2] == b"PK"
+
+
+def test_unknown_format_is_refused(client):
+    login(client)
+    assert client.post("/api/enrich?format=pdf", files={"file": ("p.csv", CSV)}).status_code == 422

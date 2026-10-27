@@ -18,11 +18,11 @@ from pathlib import Path
 
 import httpx
 from dotenv import load_dotenv
-from fastapi import FastAPI, Form, Request, UploadFile
+from fastapi import FastAPI, Form, Query, Request, UploadFile
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Response
 
 from .cache import FigiCache
-from .enrich import InputError, enrich
+from .enrich import InputError, enrich, to_csv, to_xlsx
 from .massive import Massive
 from .openfigi import OpenFigi
 
@@ -32,6 +32,10 @@ STATIC = Path(__file__).parent / "static"
 COOKIE = "tl_session"
 SESSION_SECONDS = 12 * 3600
 MAX_UPLOAD = 20 * 1024 * 1024
+FORMATS = {
+    "xlsx": (to_xlsx, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
+    "csv": (to_csv, "text/csv"),
+}
 
 
 class Settings:
@@ -111,14 +115,14 @@ def create_app(settings: Settings | None = None, figi=None, massive=None, cache=
     # Sync on purpose: FastAPI runs it in a worker thread, so a 3,000-row
     # file does not block other requests while OpenFIGI is called.
     @app.post("/api/enrich")
-    def enrich_upload(request: Request, file: UploadFile):
+    def enrich_upload(request: Request, file: UploadFile, format: str = Query("xlsx", pattern="^(xlsx|csv)$")):
         if not authed(request):
             return JSONResponse({"error": "Signed out. Reload the page."}, status_code=401)
         data = file.file.read(MAX_UPLOAD + 1)
         if len(data) > MAX_UPLOAD:
             return JSONResponse({"error": "File is over 20 MB."}, status_code=413)
         try:
-            out, summary = enrich(data, figi, massive, cache)
+            table, summary = enrich(data, figi, massive, cache)
         except InputError as e:
             return JSONResponse({"error": str(e)}, status_code=400)
         except httpx.HTTPError as e:
@@ -126,7 +130,8 @@ def create_app(settings: Settings | None = None, figi=None, massive=None, cache=
 
         # The name goes into a header: keep it to characters that cannot break one.
         stem = re.sub(r"[^A-Za-z0-9_.-]+", "_", Path(file.filename or "").stem)[:80].strip("_") or "lookup"
-        name = f"{stem}_prices_{summary.close_date.isoformat()}.csv"
+        write, media_type = FORMATS[format]
+        name = f"{stem}_prices_{summary.close_date.isoformat()}.{format}"
         info = {
             "rows": summary.rows,
             "priced": summary.priced,
@@ -135,8 +140,8 @@ def create_app(settings: Settings | None = None, figi=None, massive=None, cache=
             "statuses": summary.statuses.most_common(),
         }
         return Response(
-            out,
-            media_type="text/csv",
+            write(table),
+            media_type=media_type,
             headers={
                 "Content-Disposition": f'attachment; filename="{name}"',
                 "X-Lookup-Summary": json.dumps(info),

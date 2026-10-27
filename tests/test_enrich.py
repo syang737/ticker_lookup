@@ -5,7 +5,7 @@ import pytest
 from conftest import FakeFigi
 
 from ticker_lookup.cache import FigiCache
-from ticker_lookup.enrich import InputError, enrich
+from ticker_lookup.enrich import InputError, enrich, to_csv
 
 ROWS = [
     ("037833100", "100"),
@@ -27,8 +27,8 @@ ROWS = [
 def run(figi, massive, rows=ROWS, header=("Security CUSIP", "Qty"), encoding="utf-8-sig", cache=None):
     buf = io.StringIO()
     csv.writer(buf).writerows([header, *rows])
-    out, summary = enrich(buf.getvalue().encode(encoding), figi, massive, cache)
-    return list(csv.DictReader(io.StringIO(out.decode("utf-8-sig")))), summary
+    table, summary = enrich(buf.getvalue().encode(encoding), figi, massive, cache)
+    return list(csv.DictReader(io.StringIO(to_csv(table).decode("utf-8-sig")))), summary
 
 
 def test_every_row_comes_back_with_its_columns_and_a_status(figi, massive):

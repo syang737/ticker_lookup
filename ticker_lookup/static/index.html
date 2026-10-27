@@ -66,6 +66,12 @@
   }
   .actions a { background: var(--accent); color: var(--accent-text); }
   .actions button { background: none; border: 1px solid var(--border); color: var(--text); }
+  .format { display: flex; align-items: center; gap: 10px; margin: 0 0 12px; font-size: 14px; color: var(--muted); }
+  .format fieldset { display: inline-flex; border: 1px solid var(--border); border-radius: 8px; padding: 2px; margin: 0; }
+  .format label { padding: 4px 12px; border-radius: 6px; cursor: pointer; color: var(--text); }
+  .format input { position: absolute; opacity: 0; pointer-events: none; }
+  .format label:has(input:checked) { background: var(--accent); color: var(--accent-text); font-weight: 600; }
+  .format label:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: 1px; }
   [hidden] { display: none !important; }
 </style>
 </head>
@@ -77,6 +83,14 @@
 <main>
   <p class="intro">Drop a CSV with a CUSIP, ISIN or ticker column. You get the same file back with
     the ticker and previous close appended, and a status on every row.</p>
+
+  <div class="format">
+    <span id="format-label">Download as</span>
+    <fieldset aria-labelledby="format-label">
+      <label><input type="radio" name="format" value="xlsx" checked> Excel</label>
+      <label><input type="radio" name="format" value="csv"> CSV</label>
+    </fieldset>
+  </div>
 
   <div id="drop" tabindex="0" role="button" aria-label="Choose a CSV file">
     <div id="drop-idle">
@@ -110,6 +124,17 @@
   const drop = $("drop"), input = $("file");
   let busy = false, lastUrl = null;
 
+  // Excel by default: a CSV opened in Excel turns CUSIPs like 78471E109 into
+  // scientific notation. The choice is remembered per browser.
+  try {
+    const saved = localStorage.getItem("format");
+    if (saved) document.querySelector(`input[name=format][value="${saved}"]`)?.click();
+  } catch {}
+  document.querySelectorAll("input[name=format]").forEach((r) => r.addEventListener("change", () => {
+    try { localStorage.setItem("format", r.value); } catch {}
+  }));
+  const format = () => document.querySelector("input[name=format]:checked").value;
+
   const color = (s) => s === "ok" ? "var(--ok)" : s.startsWith("invalid") ? "var(--error)" : "var(--warn)";
 
   function setBusy(on, name) {
@@ -135,7 +160,7 @@
     try {
       const body = new FormData();
       body.append("file", file);
-      const resp = await fetch("/api/enrich", { method: "POST", body });
+      const resp = await fetch(`/api/enrich?format=${format()}`, { method: "POST", body });
       if (resp.status === 401) { location.href = "/login"; return; }
       if (!resp.ok) {
         let msg = `Request failed (${resp.status}).`;
@@ -143,7 +168,7 @@
         return showError(msg);
       }
       const summary = JSON.parse(resp.headers.get("X-Lookup-Summary"));
-      const name = /filename="([^"]+)"/.exec(resp.headers.get("Content-Disposition"))?.[1] || "prices.csv";
+      const name = /filename="([^"]+)"/.exec(resp.headers.get("Content-Disposition"))?.[1] || `prices.${format()}`;
       if (lastUrl) URL.revokeObjectURL(lastUrl);
       lastUrl = URL.createObjectURL(await resp.blob());
       const link = $("download");

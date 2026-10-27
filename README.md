@@ -18,6 +18,10 @@ python -m ticker_lookup           # http://127.0.0.1:8000
 
 ## What comes back
 
+An Excel file by default (CSV on request). Excel opens a CSV by guessing types,
+which turns CUSIPs like `12345E107` into scientific notation and drops leading
+zeros; in the .xlsx the identifier column is stored as text, so it cannot.
+
 Every original row and column, plus:
 
 | Column | |
