@@ -31,7 +31,7 @@ Fill in `APP_PASSWORD` (long -- this is on the internet), `SECRET_KEY`
 sudo cp deploy/ticker.service /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable --now ticker
-curl -sI http://127.0.0.1:8001/login    # HTTP/1.1 200 OK
+curl -s -o /dev/null -w "%{http_code}\n" http://127.0.0.1:8001/login    # 200
 ```
 
 ## 4. Caddy
