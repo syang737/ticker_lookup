@@ -37,14 +37,19 @@ curl -sI http://127.0.0.1:8001/login    # HTTP/1.1 200 OK
 ## 4. Caddy
 
 Each app gets its own file under `/etc/caddy/sites/`, and the main Caddyfile
-imports them all. One app's deploy then cannot remove another's site.
+only imports them, so one app's deploy cannot remove another's site. The tee
+time watcher's `setup.sh` sets that layout up, so update it first -- this
+moves its own site out of the main Caddyfile:
 
 ```bash
-sudo mkdir -p /etc/caddy/sites
-# Once: make the main Caddyfile pull in every site file.
-grep -q 'import sites/\*' /etc/caddy/Caddyfile \
-  || echo 'import sites/*.caddy' | sudo tee -a /etc/caddy/Caddyfile
-# Edit the hostname first if it is not prices.potpourri.lol.
+cd ~/tee_time_scraper && git pull && ./deploy/setup.sh golf.potpourri.lol
+grep -x 'import sites/\*.caddy' /etc/caddy/Caddyfile    # should print the line
+```
+
+Then add this site (edit the hostname first if it is not prices.potpourri.lol):
+
+```bash
+cd ~/ticker_lookup
 sudo cp deploy/ticker.caddy /etc/caddy/sites/ticker.caddy
 sudo caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile \
   && sudo systemctl reload caddy
@@ -52,11 +57,6 @@ sudo caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile \
 
 Caddy fetches the certificate on the first request; give DNS a few minutes
 to propagate first.
-
-> **Warning.** The tee time watcher's `deploy/setup.sh` overwrites
-> `/etc/caddy/Caddyfile` with its own. Re-running it drops the import line,
-> and with it this site. Until that script installs to `/etc/caddy/sites/`
-> as well, re-add the import line after running it.
 
 ## Updating
 
