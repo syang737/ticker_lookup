@@ -2,7 +2,7 @@
 name = "ticker_lookup"
 version = "0.1.0"
 description = "Drop a spreadsheet of CUSIPs, ISINs or tickers; get it back with previous-close prices"
-requires-python = ">=3.11"
+requires-python = ">=3.10"
 dependencies = [
     "fastapi>=0.115",
     "uvicorn>=0.30",

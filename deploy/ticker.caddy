@@ -1,0 +1,21 @@
+# Caddy site for Ticker Lookup, alongside the other apps on the instance.
+# Replace the hostname with yours. Installed as its own file under
+# /etc/caddy/sites/ -- see DEPLOY.md for why not in the main Caddyfile.
+
+prices.potpourri.lol {
+	reverse_proxy localhost:8001
+
+	# Uploads are capped at 20 MB by the app; leave headroom for the form.
+	request_body {
+		max_size 25MB
+	}
+
+	encode gzip
+
+	log {
+		output file /var/log/caddy/ticker.log {
+			roll_size 10MB
+			roll_keep 3
+		}
+	}
+}

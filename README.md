@@ -16,6 +16,8 @@ python -m ticker_lookup           # http://127.0.0.1:8000
 `--host 0.0.0.0` to serve others on the network. Over HTTPS, set
 `SECURE_COOKIE=true`.
 
+To host it on a server behind Caddy, see [deploy/DEPLOY.md](deploy/DEPLOY.md).
+
 ## What comes back
 
 An Excel file by default (CSV on request). Excel opens a CSV by guessing types,

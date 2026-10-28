@@ -1,0 +1,27 @@
+[Unit]
+Description=Ticker Lookup
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/home/ubuntu/ticker_lookup
+EnvironmentFile=/home/ubuntu/ticker_lookup/.env
+# Bound to localhost on 8001 (the tee time watcher has 8000): Caddy is the
+# only way in, so the page is never reachable over plain HTTP.
+ExecStart=/home/ubuntu/ticker_lookup/.venv/bin/uvicorn ticker_lookup.app:create_app --factory \
+    --host 127.0.0.1 --port 8001 \
+    --proxy-headers --forwarded-allow-ips 127.0.0.1
+Restart=always
+RestartSec=5
+
+# The service only needs its own directory (the OpenFIGI cache) and outbound HTTPS.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=read-only
+ReadWritePaths=/home/ubuntu/ticker_lookup
+
+[Install]
+WantedBy=multi-user.target
