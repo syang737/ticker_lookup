@@ -48,10 +48,10 @@ def test_upload_returns_the_priced_file(client):
     assert r.status_code == 200
     assert r.headers["content-disposition"] == 'attachment; filename="positions_1_prices_2026-10-26.csv"'
     summary = json.loads(r.headers["x-lookup-summary"])
-    assert (summary["rows"], summary["priced"], summary["column"]) == (2, 2, "CUSIP")
+    assert (summary["rows"], summary["priced"], summary["columns"]) == (2, 2, ["CUSIP"])
     lines = r.content.decode("utf-8-sig").splitlines()
-    assert lines[0] == "CUSIP,Qty,lookup_ticker,close,close_date,lookup_status,lookup_name,lookup_figi"
-    assert lines[1].startswith("037833100,100,AAPL,231.5,2026-10-26,ok,")
+    assert lines[0] == "CUSIP,Qty,lookup_cusip,lookup_ticker,close,close_date,lookup_status,lookup_name,lookup_figi"
+    assert lines[1].startswith("037833100,100,037833100,AAPL,231.5,2026-10-26,ok,")
 
 
 def test_bad_file_is_a_400_with_a_message(client):

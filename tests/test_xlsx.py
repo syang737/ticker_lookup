@@ -46,3 +46,39 @@ def test_close_is_a_number_and_close_date_a_date(figi, massive):
     assert close.value == 231.5
     assert close_date.value in (date(2026, 10, 26), datetime(2026, 10, 26))
     assert close_date.number_format == "yyyy-mm-dd"
+
+
+def xlsx_upload(rows):
+    from openpyxl import Workbook
+    wb = Workbook()
+    for r in rows:
+        wb.active.append(r)
+    buf = io.BytesIO()
+    wb.save(buf)
+    return buf.getvalue()
+
+
+def test_xlsx_upload_reads_cells_excel_turned_into_numbers(figi, massive):
+    data = xlsx_upload([
+        ("Symbol", "ISIN", "CUSIP", "Trade Date", "Qty"),
+        # Leading zero lost: stored as the number 84670702.
+        ("BRK B", "US0846707026", 84670702, datetime(2026, 6, 1), 3),
+        # Scientific notation stored as a number; the ISIN rescues it.
+        ("AAPL", "US0378331005", 4.701e112, datetime(2026, 6, 2, 9, 30), 1.5),
+    ])
+    table, summary = enrich(data, figi, massive)
+    head = table.header
+    brk, aapl = (dict(zip(head, r)) for r in table.rows)
+    assert (brk["CUSIP"], brk["lookup_cusip"], brk["lookup_ticker"]) == ("84670702", "084670702", "BRK.B")
+    assert brk["lookup_status"] == "ok, zero-padded"
+    assert brk["Trade Date"] == "2026-06-01" and brk["Qty"] == "3"
+    assert (aapl["lookup_cusip"], aapl["lookup_status"]) == ("037833100", "ok, CUSIP from ISIN")
+    assert aapl["Trade Date"] == "2026-06-02 09:30:00" and aapl["Qty"] == "1.5"
+    assert summary.priced == 2
+
+
+def test_a_broken_xlsx_is_a_user_error(figi, massive):
+    import pytest
+    from ticker_lookup.enrich import InputError
+    with pytest.raises(InputError):
+        enrich(b"PK\x03\x04 not really a zip", figi, massive)

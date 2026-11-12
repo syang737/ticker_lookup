@@ -45,7 +45,7 @@ def test_every_row_comes_back_with_its_columns_and_a_status(figi, massive):
     assert by["37833100"]["lookup_status"] == "ok, zero-padded"
 
     assert summary.priced == 6
-    assert summary.column == "Security CUSIP"
+    assert summary.columns == ["Security CUSIP"]
 
 
 def test_fund_resolves_to_the_listing_with_a_close_not_its_nav_symbol(figi, massive):
@@ -80,7 +80,7 @@ def test_identifiers_are_sent_once(figi, massive):
 
 def test_column_found_by_content_when_the_header_says_nothing(figi, massive):
     rows, summary = run(figi, massive, rows=[("Apple", "037833100")], header=("Desc", "Code"))
-    assert summary.column == "Code"
+    assert summary.columns == ["Code"]
     assert rows[0]["close"] == "231.5"
 
 
@@ -103,3 +103,62 @@ def test_cache_spares_openfigi_on_the_second_run(figi, massive, tmp_path):
 def test_no_identifier_column_is_a_user_error(figi, massive):
     with pytest.raises(InputError):
         run(figi, massive, rows=[("hello", "world")], header=("a", "b"))
+
+
+# -- several identifier columns, as in a broker's order list -----------------
+
+ORDERS_HEADER = ("Symbol", "ISIN", "CUSIP", "Qty")
+
+
+def by_symbol(rows):
+    return {r["Symbol"]: r for r in rows}
+
+
+def test_cusip_excel_destroyed_is_taken_from_the_isin(figi, massive):
+    # 037833100 shown as Excel would show a CUSIP like 47010E108: rounded.
+    rows, summary = run(figi, massive, header=ORDERS_HEADER, rows=[("AAPL", "US0378331005", "4.70E+112", "5")])
+    row = rows[0]
+    assert (row["lookup_cusip"], row["lookup_ticker"], row["close"]) == ("037833100", "AAPL", "231.5")
+    assert row["lookup_status"] == "ok, CUSIP from ISIN"
+    assert row["CUSIP"] == "4.70E+112"  # the original column is left as it came
+    assert summary.columns == ["CUSIP", "ISIN", "Symbol"]
+    assert summary.repairs["CUSIP from ISIN"] == 1
+
+
+def test_good_cusip_is_used_and_a_disagreeing_isin_flagged(figi, massive):
+    rows, summary = run(figi, massive, header=ORDERS_HEADER, rows=[("AAPL", "US0846707026", "037833100", "1")])
+    assert rows[0]["lookup_cusip"] == "037833100"
+    assert rows[0]["lookup_status"] == "ok, CUSIP and ISIN disagree (ISIN has 084670702)"
+    assert summary.repairs["CUSIP and ISIN disagree"] == 1
+
+
+def test_foreign_isin_is_not_a_cusip_but_is_looked_up(figi, massive):
+    figi_rows = {("GB0005405286", "ISIN"): [{"exchCode": "US", "ticker": "AAPL", "marketSector": "Equity"}]}
+    figi.map = lambda ids: {k: figi_rows.get(k, []) for k in ids}
+    rows, _ = run(figi, massive, header=ORDERS_HEADER, rows=[("HBCYF", "GB0005405286", "", "1")])
+    assert rows[0]["lookup_cusip"] == ""
+    assert rows[0]["lookup_status"] == "ok"
+
+
+def test_symbol_is_the_last_resort(figi, massive):
+    rows, _ = run(figi, massive, header=ORDERS_HEADER, rows=[("NVDA", "", "", "1")])
+    assert (rows[0]["lookup_ticker"], rows[0]["close"]) == ("NVDA", "180.0")
+
+
+def test_every_column_unusable_says_why_for_each(figi, massive):
+    rows, _ = run(figi, massive, header=ORDERS_HEADER, rows=[("", "US0378331006", "9.29E+211", "1")])
+    assert rows[0]["lookup_status"] == (
+        "invalid: CUSIP: Excel scientific notation, re-export as text; ISIN: bad ISIN check digit")
+
+
+def test_short_rows_keep_the_appended_columns_in_line(figi, massive):
+    rows, _ = run(figi, massive, header=("CUSIP", "Qty", "Note"), rows=[("037833100",)])
+    assert rows[0]["Note"] == "" and rows[0]["close"] == "231.5"
+
+
+def test_falling_back_to_the_symbol_says_why(figi, massive):
+    rows, summary = run(figi, massive, header=ORDERS_HEADER, rows=[("NVDA", "US0378331006", "9.29E+211", "1")])
+    assert rows[0]["close"] == "180.0"
+    assert rows[0]["lookup_status"] == (
+        "ok, by Symbol (CUSIP: Excel scientific notation, re-export as text; ISIN: bad ISIN check digit)")
+    assert summary.repairs["by Symbol"] == 1

@@ -135,9 +135,10 @@ def create_app(settings: Settings | None = None, figi=None, massive=None, cache=
         info = {
             "rows": summary.rows,
             "priced": summary.priced,
-            "column": summary.column,
+            "columns": summary.columns,
             "close_date": summary.close_date.isoformat(),
             "statuses": summary.statuses.most_common(),
+            "repairs": summary.repairs.most_common(),
         }
         return Response(
             write(table),

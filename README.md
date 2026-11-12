@@ -28,14 +28,24 @@ Every original row and column, plus:
 
 | Column | |
 |---|---|
+| `lookup_cusip` | The row's CUSIP, repaired where Excel damaged it |
 | `lookup_ticker` | The US ticker priced |
 | `close` | Unadjusted close of the last completed session |
 | `close_date` | That session's date |
 | `lookup_status` | `ok`, or why the row has no price |
 | `lookup_name`, `lookup_figi` | What the identifier resolved to, to check against |
 
-The identifier column is found by its header (`CUSIP`, `ISIN`, `Ticker`,
-`Symbol`...) or, failing that, by which column holds identifiers.
+Identifier columns are found by header (`CUSIP`, `ISIN`, `Ticker`,
+`Symbol`...) or, failing that, by which column holds identifiers. With several,
+each row uses the first that is usable, in that order.
+
+Upload a CSV or an .xlsx. A CUSIP Excel has turned into scientific notation
+cannot be worked back out -- Excel keeps only the digits it displays, so
+`9.29E+211` fits about a dozen valid CUSIPs -- but a US or Canadian ISIN holds
+the CUSIP intact in characters 3-11, and only those CUSIPs are ever damaged
+this way (any CUSIP starting with a letter stays text). So when the row has
+an ISIN, the CUSIP is taken from it (`CUSIP from ISIN`); a CUSIP and ISIN that
+disagree are flagged.
 
 ## How it works
 

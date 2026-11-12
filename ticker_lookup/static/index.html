@@ -59,6 +59,7 @@
   td { padding: 6px 0; border-top: 1px solid var(--border); }
   td.n { text-align: right; font-variant-numeric: tabular-nums; width: 80px; }
   .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 8px; }
+  .repairs { margin: 12px 0 0; color: var(--muted); font-size: 14px; }
   .actions { margin-top: 16px; display: flex; flex-wrap: wrap; gap: 8px; }
   .actions a, .actions button {
     font: inherit; font-weight: 600; text-decoration: none; border-radius: 8px;
@@ -81,8 +82,9 @@
   <form method="post" action="/logout"><button type="submit">Sign out</button></form>
 </header>
 <main>
-  <p class="intro">Drop a CSV with a CUSIP, ISIN or ticker column. You get the same file back with
-    the ticker and previous close appended, and a status on every row.</p>
+  <p class="intro">Drop a CSV or Excel file with CUSIP, ISIN or ticker columns. You get the same file back
+    with the ticker and previous close appended, and a status on every row. CUSIPs Excel has damaged are
+    repaired from the ISIN where the row has one.</p>
 
   <div class="format">
     <span id="format-label">Download as</span>
@@ -94,7 +96,7 @@
 
   <div id="drop" tabindex="0" role="button" aria-label="Choose a CSV file">
     <div id="drop-idle">
-      <strong>Drop a CSV here</strong>
+      <strong>Drop a CSV or Excel file here</strong>
       <span>or click to choose a file</span>
     </div>
     <div id="drop-busy" hidden>
@@ -103,7 +105,7 @@
       <span>Looking up identifiers and prices…</span>
     </div>
   </div>
-  <input type="file" id="file" accept=".csv,text/csv" hidden>
+  <input type="file" id="file" accept=".csv,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" hidden>
 
   <section id="result" class="card" hidden aria-live="polite">
     <div class="headline">
@@ -111,6 +113,7 @@
       <div class="meta" id="meta"></div>
     </div>
     <table><tbody id="statuses"></tbody></table>
+    <p class="repairs" id="repairs" hidden></p>
     <div class="actions">
       <a id="download">Download again</a>
       <button type="button" id="another">Process another file</button>
@@ -153,7 +156,7 @@
 
   async function upload(file) {
     if (busy || !file) return;
-    if (!/\.csv$/i.test(file.name)) return showError("Please choose a .csv file. In Excel: File › Save As › CSV UTF-8.");
+    if (!/\.(csv|xlsx)$/i.test(file.name)) return showError("Please choose a .csv or .xlsx file.");
     $("error").hidden = true;
     $("result").hidden = true;
     setBusy(true, file.name);
@@ -187,7 +190,9 @@
   function showResult(s) {
     const pct = s.rows ? Math.round(100 * s.priced / s.rows) : 0;
     $("priced").textContent = `${s.priced.toLocaleString()} of ${s.rows.toLocaleString()} priced (${pct}%)`;
-    $("meta").textContent = `Close of ${s.close_date} · identifiers from column “${s.column}”`;
+    $("meta").textContent = `Close of ${s.close_date} · identifiers from ${s.columns.map((c) => `“${c}”`).join(", then ")}`;
+    $("repairs").textContent = s.repairs.map(([note, n]) => `${n.toLocaleString()} × ${note}`).join(" · ");
+    $("repairs").hidden = !s.repairs.length;
     const tbody = $("statuses");
     tbody.replaceChildren(...s.statuses.map(([status, n]) => {
       const tr = document.createElement("tr");
